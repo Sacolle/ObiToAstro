@@ -1,18 +1,21 @@
 import { App, getAllTags,  Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault } from 'obsidian';
 
 import slugify from '@sindresorhus/slugify';
+import { writeFile, copyFile } from "fs/promises"
 
 // Remember to rename these classes and interfaces!
 
 interface MDPSettings {
 	savePath: string;
 	imgFolder: string;
+	baseUrl: string;
 	author: string;
 }
 
 const DEFAULT_SETTINGS: MDPSettings = {
 	savePath: 'default',
 	imgFolder: 'images',
+	baseUrl: "blog",
 	author: "fulano"
 }
 
@@ -34,6 +37,12 @@ async function mutateAndSaveFile(vault: Vault, fileData: FileData, links: Map<st
 	//remove front matter
 	contents = contents.replace(/---(\n|.)*?---/, "")
 	
+	if(fileData.tags.length == 1){
+		new Notice(`Parse do Arquivo ${fileData.name} falhou.
+O arquivo precisa de pelo menos 1 tag além da tag post`);
+		return
+	}
+
 	//TODO: maybe use a lib that does yaml
 	const frontMatter = `---
 tags:${fileData.tags.filter(t => t !== "#post").map(t => `\n  - ${t.replace("#","")}`).join("")}
@@ -44,12 +53,16 @@ updatedAt: ${fileData.updatedAt.toLocaleDateString('en-GB')}
 ---`
 
 	contents = `${frontMatter}\n# ${fileData.name}\n${contents}`  
-	const filename = `${settings.savePath}/${slugify(fileData.name)}.md`
+	const filename = `${settings.savePath}/src/content/posts/${slugify(fileData.name)}.md`
 	//if file exists, delete first
-	if(vault.getAbstractFileByPath(filename) instanceof TFile){
-		vault.delete(vault.getAbstractFileByPath(filename) as TAbstractFile)
+	try{
+		await writeFile(filename, contents)
+		new Notice(`Parse do Arquivo ${fileData.name} ocorreu com sucesso!`);
+		return true
+	}catch(e){
+		new Notice(`Parse do Arquivo ${fileData.name} falhou.\n${JSON.stringify(e)}`);
+		return false
 	}
-	return vault.create(filename, contents)
 }
 
 async function parseFiles(app: App, settings: MDPSettings){
@@ -59,7 +72,7 @@ async function parseFiles(app: App, settings: MDPSettings){
 	const links = new Map<string, string>()
 
 	//TODO: validate the image folder
-	const { imgFolder } = settings
+	const { baseUrl } = settings
 	const parsedFiles: FileData[] = []
 
 	for(const f of files){
@@ -78,8 +91,13 @@ async function parseFiles(app: App, settings: MDPSettings){
 			//add the embeds to the dictionary
 			if(fileMetadata.embeds){
 				for(const { original, link} of fileMetadata.embeds){
+					try{
+						await copyFile(`${settings.imgFolder}/${link}`, `${settings.savePath}/public/${link}`)
+					}catch(e){
+						console.log("erro no copy da imagem: ", link, e)
+					}
 					links.set(original, 
-						`${original.replace("[[", "[").replace("]]", "]")}(/${imgFolder}/${link})`
+						`${original.replace("[[", "[").replace("]]", "]")}(/${baseUrl}/${link})`
 					)
 				}
 			}
@@ -87,16 +105,18 @@ async function parseFiles(app: App, settings: MDPSettings){
 				for(const { original, link } of fileMetadata.links){
 					//slugify muda pra kebab e troca non ascii pra ascii
 					links.set(original, 
-						`${original.replace("[[", "[").replace("]]", "]")}(/${slugify(link)})`
+						`${original.replace("[[", "[").replace("]]", "]")}(/${baseUrl}/posts/${slugify(link)})`
 					) 
 				}
 			}
 		}
 	}
 
-	await Promise.all(parsedFiles.map(f => mutateAndSaveFile(app.vault, f, links, settings)))
+	const results = await Promise.all(parsedFiles.map(f => mutateAndSaveFile(app.vault, f, links, settings)))
 
-	new Notice('Parse dos Arquivos está completo!');
+	if(results.every((v) => v)){
+		new Notice(`Parse dos Arquivos realizado com sucesso!`);
+	}
 }
 
 export default class MDParser extends Plugin {
@@ -143,7 +163,7 @@ class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Save Path:')
-			.setDesc('Local onde os arquivos serão salvos no vault')
+			.setDesc('Local do projeto Astro, full path')
 			.addText(text => text
 				.setValue(this.plugin.settings.savePath)
 				.onChange(async (value) => {
@@ -153,11 +173,21 @@ class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Path To Image Folder:')
-			.setDesc('Local onde as imagens estão salvas neste Vault, apenas precisa do nome.')
+			.setDesc('Local onde as imagens estão salvas neste Vault, full path.')
 			.addText(text => text
 				.setValue(this.plugin.settings.imgFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.imgFolder= value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Base URL:')
+			.setDesc('Path base do deploy do site: ')
+			.addText(text => text
+				.setValue(this.plugin.settings.baseUrl)
+				.onChange(async (value) => {
+					this.plugin.settings.baseUrl = value;
 					await this.plugin.saveSettings();
 				}));
 
