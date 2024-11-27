@@ -1,20 +1,20 @@
-import { App, getAllTags,  Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault } from 'obsidian';
+import { App, getAllTags,  Notice, Platform, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, Vault } from 'obsidian';
 
 import slugify from '@sindresorhus/slugify';
 import { writeFile, copyFile } from "fs/promises"
+
+import { SaveModal } from './dialog';
 
 // Remember to rename these classes and interfaces!
 
 interface MDPSettings {
 	savePath: string;
-	imgFolder: string;
 	baseUrl: string;
 	author: string;
 }
 
 const DEFAULT_SETTINGS: MDPSettings = {
 	savePath: 'default',
-	imgFolder: 'images',
 	baseUrl: "blog",
 	author: "fulano"
 }
@@ -68,7 +68,6 @@ updatedAt: ${fileData.updatedAt.toLocaleDateString('en-GB')}
 async function parseFiles(app: App, settings: MDPSettings){
 	const files = app.vault.getMarkdownFiles()
 	
-	
 	const links = new Map<string, string>()
 
 	//TODO: validate the image folder
@@ -92,7 +91,7 @@ async function parseFiles(app: App, settings: MDPSettings){
 			if(fileMetadata.embeds){
 				for(const { original, link} of fileMetadata.embeds){
 					try{
-						await copyFile(`${settings.imgFolder}/${link}`, `${settings.savePath}/public/${link}`)
+						//await copyFile(`${settings.imgFolder}/${link}`, `${settings.savePath}/public/${link}`)
 					}catch(e){
 						console.log("erro no copy da imagem: ", link, e)
 					}
@@ -121,9 +120,26 @@ async function parseFiles(app: App, settings: MDPSettings){
 
 export default class MDParser extends Plugin {
 	settings: MDPSettings;
+	saveModal: SaveModal;
+	selectedFile: TAbstractFile;
 
 	async onload() {
+
 		await this.loadSettings();
+
+		this.saveModal = new SaveModal(this.app, this, () => console.log(this.selectedFile))
+
+		this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+			menu.addItem((item) => {
+				item.setTitle('Exportar arquivo MD')
+					.setIcon('arrow-up-from-line')
+					.onClick(() => {
+						this.selectedFile = file;
+						this.saveModal.open()
+					});
+			});
+		}));
+		/*
 
 		this.addRibbonIcon('arrow-up-from-line', 'Upload To Website', async () => await parseFiles(this.app, this.settings));		 
 		this.addCommand({
@@ -131,14 +147,14 @@ export default class MDParser extends Plugin {
 			name: "Parse Obsidian Files",
 			callback: async () => await parseFiles(this.app, this.settings),
 		}); 
+		*/
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		//this.addSettingTab(new SettingTab(this.app, this));
 	}
 
-
-	onunload() {
-
+	async exportFile(file: TAbstractFile){
 	}
+
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -146,59 +162,5 @@ export default class MDParser extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MDParser;
-
-	constructor(app: App, plugin: MDParser) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Save Path:')
-			.setDesc('Local do projeto Astro, full path')
-			.addText(text => text
-				.setValue(this.plugin.settings.savePath)
-				.onChange(async (value) => {
-					this.plugin.settings.savePath= value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Path To Image Folder:')
-			.setDesc('Local onde as imagens estão salvas neste Vault, full path.')
-			.addText(text => text
-				.setValue(this.plugin.settings.imgFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.imgFolder= value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Base URL:')
-			.setDesc('Path base do deploy do site: ')
-			.addText(text => text
-				.setValue(this.plugin.settings.baseUrl)
-				.onChange(async (value) => {
-					this.plugin.settings.baseUrl = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Author Name:')
-			.setDesc('Autor dos arquivos gerados')
-			.addText(text => text
-				.setValue(this.plugin.settings.author)
-				.onChange(async (value) => {
-					this.plugin.settings.author= value;
-					await this.plugin.saveSettings();
-				}));
 	}
 }
