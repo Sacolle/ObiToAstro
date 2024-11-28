@@ -78,14 +78,32 @@ async function exportFile(app: App, file: TFile, { savePath, imgFolder, baseUrl,
 		}
 		const filename = `${savePath}/${slugify(name)}.md`
 
-		try{
-			await writeFile(filename, contents)
-			Promise.all(embedsToExport.map(({from , to}) => copyFile(from, to)))
-		}catch(e){
-			//revert se nao deu certo
-			await unlink(filename).catch(err => console.log("arquivo não criado: ", err))
-			Promise.all(embedsToExport.map(({ to }) => unlink(to).catch(err => console.log(err))))
+		// não consegui usar try catch aqui pq JS as vezes é uma merda
+
+		const writeFileErr = await writeFile(filename, contents)
+			.then(() => null)
+			.catch(async (err) => {
+				await unlink(filename).catch(() => {})
+				return "falha em escrever o arquivo: " + err.message
+			})
+		if(writeFileErr){
+			return writeFileErr
 		}
+
+		const embedsErr = await Promise.all(
+			embedsToExport.map(({from , to}) => copyFile(from, to)
+				.then(() => null)
+				.catch(() => `falha em copiar\n${from}`)
+			)
+		)
+		//se não é verdade que todos os valores não null
+		if(!embedsErr.every(err => err == null)){
+			await unlink(filename).catch(err => console.log("arquivo não criado: ", err))
+			await Promise.all(embedsToExport.map(({ to }) => unlink(to).catch(err => console.log(err))))
+
+			return embedsErr.filter(err => err != null).join("\n")
+		}
+		
 		new Notice("Arquivo exportado com sucesso.")
 		return null
 	}else{
