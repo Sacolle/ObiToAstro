@@ -19,9 +19,9 @@ function folderSelector() : string{
 export class SaveModal extends Modal {
 
 	plugin: MDParser;
-	onSubmit: () => void
+	onSubmit: () => Promise<string | null>
 
-	constructor(app: App, plugin: MDParser, onSubmit: () => void) {
+	constructor(app: App, plugin: MDParser, onSubmit: () => Promise<string | null>) {
 		super(app);
 		this.plugin = plugin
 		this.onSubmit = onSubmit
@@ -30,7 +30,7 @@ export class SaveModal extends Modal {
 	}
 
 	setup(){
-		let descriptor = new Setting(this.contentEl)
+		const saveFolderDescriptor = new Setting(this.contentEl)
 			.setName('Save Folder:')
 			.setDesc(`Local em que o arquivo e relacionados serão salvos:\n${
 				this.plugin.settings.savePath
@@ -40,11 +40,29 @@ export class SaveModal extends Modal {
 				.onClick(async () => {
 					const folderName = folderSelector()
 					this.plugin.settings.savePath = folderName;
-					descriptor.setDesc(
+					saveFolderDescriptor.setDesc(
 						`Local em que o arquivo e relacionados serão salvos:\n${
 							this.plugin.settings.savePath
 						}`
 					)
+					await this.plugin.saveSettings();
+				})
+			)
+
+		const imgFolderDescriptor = new Setting(this.contentEl)
+			.setName('Image Folder:')
+			.setDesc(`Local em que as imagens no Vault atual estão salvas:\n${
+				this.plugin.settings.imgFolder
+			}`)
+			.addButton(button => button
+				.setButtonText("Selecionar")
+				.onClick(async () => {
+					const folderName = folderSelector()
+					this.plugin.settings.imgFolder = folderName;
+					imgFolderDescriptor.setDesc(
+						`Local em que as imagens no Vault atual estão salvas:\n${
+						this.plugin.settings.imgFolder
+					}`)
 					await this.plugin.saveSettings();
 				})
 			)
@@ -69,14 +87,23 @@ export class SaveModal extends Modal {
 					await this.plugin.saveSettings();
 				}));
 
+		const p = this.contentEl.createEl('p', {text: ""})
+		p.style.color = "red"
+
 		new Setting(this.contentEl)
 		.addButton((btn) =>
 			btn
 			.setButtonText('Submit')
 			.setCta()
 			.onClick(() => {
-				this.close();
-				this.onSubmit();
+				this.onSubmit().then(err => {
+					if(err){
+						p.innerHTML = JSON.stringify(err)
+					}else{
+						p.innerHTML = ""
+						this.close();
+					}
+				})
 			}));
 	}
 }
